@@ -108,6 +108,12 @@ function initKeywordsAutocomplete(keywords) {
 $(function() {
     'use strict';
 
+    /**
+     * Flag indicating whether the user is in edit mode or not. This affects the behavior of the
+     * Save button.
+     */
+    let editMode = false;
+
     // update relative dates
     var relative_timer_duration = 60000;
     var relative_timer_id = window.setInterval(relativeTimer, relative_timer_duration);
@@ -621,6 +627,7 @@ $(function() {
     $('#mode-btn')
         .click(async event => {
             event.preventDefault();
+            editMode = true;
 
             // hide buttons, old error messages
             $('#mode-btn-readonly').hide();
@@ -720,12 +727,14 @@ $(function() {
 
     // disable the save buttons while posting
     $('.save-btn')
-        .click(function(event) {
+        .click(async function(event) {
             event.preventDefault();
+
+            const form = document.querySelector('#changeform');
 
             // Check if all the required fields are entered/selected.
             // This replaces the legacy `validateEnterBug()` function.
-            const hasInvalidField = [...this.form.querySelectorAll('[aria-required="true"]')]
+            const hasInvalidField = [...form.querySelectorAll('[aria-required="true"]')]
                 .map(($input) => {
                     let invalid = false;
 
@@ -740,7 +749,7 @@ $(function() {
                     } else if ($input.type === 'select-one') {
                         invalid = $input.selectedIndex === -1;
                     } else if ($input.matches('[class="buttons toggle"]')) {
-                        invalid = !this.form[$input.id].value;
+                        invalid = !form[$input.id].value;
                     }
 
                     $input.setAttribute('aria-invalid', invalid);
@@ -759,7 +768,7 @@ $(function() {
                     return !!$input;
                 });
 
-            if (hasInvalidField || !document.changeform.checkValidity())
+            if (hasInvalidField || !form.checkValidity())
                 return;
 
             // unfortunately native html form validation doesn't support
@@ -776,7 +785,20 @@ $(function() {
             }
 
             $('.save-btn').attr('disabled', true);
-            this.form.submit();
+
+            if (editMode) {
+                // Submit the form normally
+                form.submit();
+            } else {
+                try {
+                    event.stopPropagation();
+                    await Bugzilla.BugModal.InstantUpdate.submit(form);
+                    clearSavedBugComment();
+                } catch {
+                    // Fallback to a full form submission
+                    form.submit();
+                }
+            }
 
             // remember expanded modules
             $('#editing').val(
@@ -1127,8 +1149,9 @@ $(function() {
     }
 
     // status/resolve as buttons
-    $('.resolution-btn')
-        .click(function(event) {
+    // use event delegation so these still work after dynamic HTML updates
+    $('#changeform')
+        .on('click', '#new-comment-actions .resolution-btn', function(event) {
             event.preventDefault();
             $('#field-status-view').hide();
             $('#field-status-edit').show();
@@ -1142,9 +1165,8 @@ $(function() {
                 $('#bottom-dup_id').focus();
                 window.setTimeout(() => { $('#bottom-dup_id')[0].scrollIntoView() }, 0);
             }
-        });
-    $('.status-btn')
-        .click(function(event) {
+        })
+        .on('click', '#new-comment-actions .status-btn', function(event) {
             event.preventDefault();
             $('#field-status-view').hide();
             $('#field-status-edit').show();

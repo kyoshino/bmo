@@ -871,4 +871,258 @@ Bugzilla.InlineAttachment = class InlineAttachment {
   }
 };
 
+/**
+ * Implement the instant update functionality that allows users to submit a new comment and change
+ * certain fields without reloading the page. This functionality uses optimistic rendering to show a
+ * placeholder comment immediately after the user submits a new comment, and then updates the
+ * comment section with the new comment from the server response.
+ */
+Bugzilla.BugModal.InstantUpdate = class InstantUpdate {
+  /** @type {HTMLFormElement} */
+  static $form = null;
+  /** @type {FormData} */
+  static initialFormData = null;
+  /** @type {HTMLTextAreaElement} */
+  static $commentTextArea = null;
+  /** @type {HTMLElement} */
+  static $lastChangeSet = null;
+  /** @type {HTMLElement} */
+  static $placeholder = null;
+  /** @type {File[]} */
+  static attachments = [];
+
+  /**
+   * Initialize the instant update functionality. This captures the initial form data for later
+   * change detection.
+   */
+  static init() {
+    const $form = document.querySelector('#changeform');
+
+    if (!$form) {
+      return;
+    }
+
+    this.$form = $form;
+    this.initialFormData = new FormData($form);
+  }
+
+  static API_PROP_MAP = {
+    comment: 'comment',
+    bug_status: 'status',
+    resolution: 'resolution',
+    dup_id: 'dupe_of',
+    assigned_to: 'assigned_to',
+  };
+
+  static API_PROP_KEYS = Object.keys(this.API_PROP_MAP);
+
+  static IGNORED_FIELDS = ['delta_ts', 'token', 'editing'];
+
+  /**
+   * Show a placeholder comment immediately after the user submits a new comment, and then update
+   * the comment section with the new comment from the server response.
+   * @throws {Error} When unsupported fields are changed or the submission fails.
+   */
+  static async submit() {
+    this.#showPlaceholder();
+
+    const currentFormData = new FormData(this.$form);
+    /** @type {Record<string, any>} */
+    const changedFields = {};
+
+    currentFormData.forEach((value, key) => {
+      if (!this.IGNORED_FIELDS.includes(key) && this.initialFormData.get(key) !== value) {
+        changedFields[key] = value;
+      }
+    });
+
+    const changedKeys = Object.keys(changedFields);
+
+    // Use the API if only supported fields are changed
+    if (!changedKeys.every((key) => this.API_PROP_KEYS.includes(key))) {
+      throw new Error('Unsupported field changes detected.');
+    }
+
+    const is_markdown = BUGZILLA.param.use_markdown;
+
+    // Update the initial form data for later change detection
+    this.initialFormData = currentFormData;
+
+    // If only the comment text is changed, use the faster comment-adding API
+    if (changedKeys.length === 1 && changedKeys[0] === 'comment') {
+      const { comment } = changedFields;
+
+      await Bugzilla.API.post(`bug/${BUGZILLA.bug_id}/comment`, { comment, is_markdown });
+    } else {
+      const data = {};
+
+      Object.entries(changedFields).forEach(([key, value]) => {
+        data[API_PROP_MAP[key]] = key === 'comment' ? { body: value, is_markdown } : value;
+      });
+
+      await Bugzilla.API.put(`bug/${BUGZILLA.bug_id}`, data);
+    }
+
+    // if (this.attachments.length) {
+    //   await Promise.all(
+    //     this.attachments.map(async (file) =>
+    //       Bugzilla.API.post(`bug/${BUGZILLA.bug_id}/attachment`, {
+    //         data: await new Promise((resolve) => {
+    //           const reader = new FileReader();
+
+    //           reader.onload = () => {
+    //             resolve(/** @type {string} */ (reader.result).split(',')[1]);
+    //           };
+    //           reader.readAsDataURL(file);
+    //         }),
+    //         file_name: file.name,
+    //         summary: file.name,
+    //         content_type: file.type || 'application/octet-stream',
+    //         comment: '',
+    //       })
+    //     )
+    //   );
+    // }
+
+    // Fetch the updated bug page to get the new rendered HTML. We are doing this because:
+    // - Other users may add comments or change the bug status in the meantime
+    // - The last change time has to be updated
+    // - The CSRF token has to be updated
+    const response = await fetch(`${BUGZILLA.config.basepath}show_bug.cgi?id=${BUGZILLA.bug_id}`);
+
+    const html = await response.text();
+    const updatedDoc = new DOMParser().parseFromString(html, 'text/html');
+
+    if (!updatedDoc.querySelector('#changeform')) {
+      // Something went wrong, e.g. mid-air collision, session timeout, or CSRF failure.
+      throw new Error('Failed to submit the changes in background.');
+    }
+
+    this.#update(updatedDoc);
+  }
+
+  /**
+   * Show a placeholder comment while waiting for the server response.
+   */
+  static async #showPlaceholder() {
+    const changeSets = [...document.querySelectorAll('.change-set')];
+    const $template = document.querySelector('#changeset-template');
+
+    this.$commentTextArea = document.querySelector('#comment');
+    this.$lastChangeSet = changeSets.pop();
+    this.$placeholder = $template.content.firstElementChild.cloneNode(true);
+
+    const $commentBody = this.$placeholder.querySelector('.comment-text');
+    const rawComment = this.$commentTextArea.value;
+    const commentCount = changeSets.filter(({ id }) => id.match(/^c\d+/)).length + 1
+
+    this.$commentTextArea.readOnly = true;
+    this.$commentTextArea.hidden = true;
+
+    this.$placeholder.querySelector('.change-name a').textContent = `Comment ${commentCount}`;
+    this.$placeholder.querySelector('.change-time span').textContent = 'Just now';
+    this.$placeholder.querySelectorAll('button').forEach(($btn) => {
+      $btn.disabled = true;
+    });
+
+    $commentBody.textContent = rawComment; // Do not use `innerHTML` here!
+    $commentBody.classList.remove('empty');
+
+    this.$lastChangeSet.insertAdjacentElement('afterend', this.$placeholder);
+
+    const { html } = await Bugzilla.API.post('bug/comment/render', { text: rawComment });
+
+    $commentBody.innerHTML = html; // Rendered HTML; safe to use `innerHTML` here
+  }
+
+  static VALUE_REPLACE_SELECTORS = ['input[name="delta_ts"]', 'input[name="token"]'];
+
+  static CONTENT_REPLACE_SELECTORS = [
+    '#field-status_summary',
+    // '#field-status-edit',
+    // '#after-comment-commit-button',
+    // '#new-comment-actions',
+  ];
+
+  /**
+   * Update the comment section with the new comment from the server response, and hydrate
+   * interactive components such as emoji reactions and inline attachments.
+   * @param {Document} updatedDoc Parsed HTML document from the server response.
+   */
+  static #update(updatedDoc) {
+    this.#addNewChangeSets(updatedDoc);
+
+    // Update the last change time and CSRF tokens in the form
+    this.VALUE_REPLACE_SELECTORS.forEach((selector) => {
+      document.querySelector(selector).value = updatedDoc.querySelector(selector).value;
+    });
+
+    // Re-enable and clear the comment textarea
+    this.$commentTextArea.readOnly = false;
+    this.$commentTextArea.hidden = false;
+    this.$commentTextArea.value = '';
+
+    // Re-enable the save button
+    document.querySelectorAll('.save-btn').forEach(($btn) => {
+      $btn.disabled = false;
+    });
+
+    // Update the status summary, including the timestamp
+    // Update the needinfo other checkboxes below the comment textarea
+    // Update the status/resolution buttons below the comment textarea
+    this.CONTENT_REPLACE_SELECTORS.forEach((selector) => {
+      document.querySelector(selector).innerHTML = updatedDoc.querySelector(selector).innerHTML;
+    });
+
+    // Re-initialize the needinfo widgets
+    Bugzilla.NeedInfo.init();
+  }
+
+  /**
+   * Replace the placeholder change set with the new change set from the server response, and
+   * hydrate interactive components such as emoji reactions and inline attachments.
+   * @param {Document} updatedDoc Parsed HTML document from the server response.
+   */
+  static #addNewChangeSets(updatedDoc) {
+    /** @type {HTMLElement[]} */
+    const allChangeSets = [...updatedDoc.querySelectorAll('.change-set')];
+    const lastChangeSetIndex = allChangeSets.findIndex(
+      ($changeSet) => $changeSet.id === this.$lastChangeSet.id,
+    );
+
+    // Slice the change sets to get only the new ones. There may be more than one if other users
+    // have made changes in the meantime
+    const newChangeSets = allChangeSets.slice(lastChangeSetIndex + 1);
+
+    this.$placeholder.replaceWith(...newChangeSets);
+
+    newChangeSets.forEach(($changeSet) => {
+      this.#hydrateChangeSet($changeSet);
+    });
+  }
+
+  /**
+   * Hydrate interactive components such as emoji reactions and inline attachments in a change set.
+   * @param {HTMLElement} $changeSet Change set element.
+   */
+  static #hydrateChangeSet($changeSet) {
+    const $comment = $changeSet.querySelector('.comment-text');
+    const $reactions = $changeSet.querySelector('.comment-reactions');
+    const $attachment = $changeSet.querySelector('.attachment');
+
+    if ($comment) {
+      Bugzilla.InlineCommentEditor.activate($changeSet);
+    }
+
+    if ($reactions) {
+      new Bugzilla.BugModal.CommentReactions($reactions);
+    }
+
+    if ($attachment) {
+      new Bugzilla.InlineAttachment($attachment);
+    }
+  }
+};
+
 document.addEventListener('DOMContentLoaded', () => new Bugzilla.BugModal.Comments(), { once: true });
+document.addEventListener('DOMContentLoaded', () => Bugzilla.BugModal.InstantUpdate.init(), { once: true });

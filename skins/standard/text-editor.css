@@ -74,12 +74,79 @@
 
 .text-editor textarea {
   display: block;
-  border-radius: 0 0 var(--control-border-radius) var(--control-border-radius);
+  border-radius: 0;
   font-variant-ligatures: none;
   padding: 12px;
   width: 100%;
   min-height: 10em;
   max-height: 40em;
+}
+
+.text-editor textarea:last-child {
+  border-radius: 0 0 var(--control-border-radius) var(--control-border-radius);
+}
+
+.text-editor .attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-radius: 0 0 var(--control-border-radius) var(--control-border-radius);
+  padding: 8px;
+  background-color: var(--primary-region-header-background-color);
+}
+
+.text-editor .attachments:empty {
+  display: none;
+}
+
+.text-editor .attachment {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  box-sizing: border-box;
+  width: 240px;
+  height: 48px;
+  border: 1px solid var(--control-border-color);
+  border-radius: var(--control-border-radius);
+  padding: 8px;
+  background-color: var(--control-background-color);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.text-editor .attachment .thumbnail:not(:has(img)) {
+  font-size: 16px;
+  font-size: var(--icon-size-medium);
+  font-family: var(--icon-font-family);
+  color: var(--secondary-label-color);
+  background-color: var(--primary-region-header-background-color);
+}
+
+.text-editor .attachment .thumbnail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--control-border-radius);
+  width: 32px;
+  height: 32px;
+}
+
+.text-editor .attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.text-editor .attachment .filename {
+  flex: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-editor .attachment button {
+  flex: none;
 }
 
 .text-editor .comment-text {
@@ -94,8 +161,15 @@
 }
 
 .text-editor footer:not([hidden]) {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
   padding: 8px 4px;
   font-size: var(--font-size-small);
+}
+
+.text-editor footer .comment-tips {
   text-align: right;
 }
 

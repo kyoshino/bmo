@@ -67,6 +67,8 @@ Bugzilla.TextEditor = class TextEditor {
       $textarea ?? this.$editTabPanel.appendChild(document.createElement('textarea'));
     /** @type {HTMLElement} */
     this.$preview = this.$container.querySelector('.comment-text');
+    /** @type {HTMLElement} */
+    this.$footer = this.$container.querySelector('footer');
 
     new Bugzilla.Tabs(this.$tabList);
 
@@ -192,10 +194,12 @@ Bugzilla.TextEditor = class TextEditor {
         <div role="tabpanel" id="${this.id}-tabpanel-preview" data-id="preview" hidden>
           <div class="comment-text ${this.useMarkdown ? 'markdown-body' : ''}"></div>
         </div>
-        <footer class="comment-tips" hidden>
-          ${footerLinks
-            .map(({ href, text }) => `<a href="${href}" target="_blank">${text}</a>`)
-            .join(' · ')}
+        <footer hidden>
+          <div class="comment-tips" hidden>
+            ${footerLinks
+              .map(({ href, text }) => `<a href="${href}" target="_blank">${text}</a>`)
+              .join(' · ')}
+          </div>
         </footer>
       </section>
     `;
@@ -690,8 +694,8 @@ Bugzilla.CommentEditor = class CommentEditor extends Bugzilla.TextEditor {
     });
 
     this.$container.classList.add('comment-editor');
-    /** @type {HTMLElement} */ (this.$container.querySelector('footer.comment-tips')).hidden =
-      !showTips;
+    this.$footer.hidden = !showTips;
+    this.$footer.querySelector('.comment-tips').hidden = !showTips;
 
     if (this.$textarea.hasAttribute('aria-label')) {
       this.$editTab.textContent = this.$textarea.getAttribute('aria-label');
@@ -713,6 +717,37 @@ Bugzilla.CommentEditor = class CommentEditor extends Bugzilla.TextEditor {
   render() {
     this.$textarea.insertAdjacentElement('afterend', this.$container);
     this.$editTabPanel.appendChild(this.$textarea);
+    this.$editTabPanel.insertAdjacentHTML('beforeend', '<div class="attachments"></div>');
+    this.$footer.hidden = false;
+    this.$footer.insertAdjacentHTML('afterbegin',
+      '<div><button type="button" tabindex="0" class="ghost">Paste, drop or click to attach files</button></div>'
+    );
+    this.$editTabPanel.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    });
+    this.$editTabPanel.addEventListener('drop', (event) => {
+      event.preventDefault();
+      [...event.dataTransfer.items].forEach((item) => {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          console.info(file);
+          Bugzilla.BugModal.InstantUpdate.attachments.push(file);
+          const blobURL = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+          this.$editTabPanel.querySelector('.attachments').insertAdjacentHTML('beforeend', `
+            <div class="attachment">
+              <span class="thumbnail">
+                ${blobURL ? `<img src="${blobURL}" alt="">` : '<span class="icon" aria-hidden="true">draft</span>'}
+              </span>
+              <span class="filename">${file.name.htmlEncode()}</span>
+              <button type="button" tabindex="0" class="ghost iconic" aria-label="Remove">
+                <span class="icon" aria-hidden="true">close</span>
+              </button>
+            </div>
+          `);
+        }
+      });
+    });
   }
 
   /**

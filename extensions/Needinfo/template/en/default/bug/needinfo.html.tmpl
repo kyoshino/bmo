@@ -71,6 +71,8 @@ $(function() {
   let container;
 
   function needinfo_init() {
+    container = $('#[% id_prefix FILTER html %]needinfo_container');
+
     $('.needinfo', container)
       .on('change', new_needinfo_changed)
     $('.needinfo-override', container)
@@ -78,6 +80,9 @@ $(function() {
       .change();
     $('#needinfo_role, #needinfo_redirect_role', container)
       .on('change', needinfo_role_changed);
+    $(".needinfo_from_changed", container).on("change", function (event) {
+        $(".needinfo", container).prop("checked", $("#needinfo_from", container).val() !== '');
+    });
     needinfo_visibility('needinfo');
 
     [% FOREACH flag = needinfo_flags %]
@@ -134,12 +139,15 @@ $(function() {
   }
 
   $(function() {
-    container = $('#[% id_prefix FILTER html %]needinfo_container');
     needinfo_init();
-    $(".needinfo_from_changed", container).on("change", function (event) {
-        $(".needinfo", container).prop("checked", $("#needinfo_from", container).val() !== '');
-    });
   });
+
+  // Expose to Bugzilla namespace so it can be called after dynamic HTML updates
+  Bugzilla.NeedInfo = class NeedInfo {
+    static init() {
+      needinfo_init();
+    }
+  }
 })();
 [% END %]
 </script>

@@ -976,7 +976,7 @@ sub extract_nicks {
 
 # This routine is used to determine the latest versions for a
 # given product from an external system. We need to fail gracefully
-# if the external system is down for any reason. If the call fails, 
+# if the external system is down for any reason. If the call fails,
 # then return undefined and let the caller decide what to do.
 sub fetch_product_versions {
   my ($product) = @_;
@@ -1046,7 +1046,7 @@ sub mojo_user_agent {
 sub is_fake_recipient_address {
   my ($recipient) = @_;
   if ($recipient =~ /\.(?:bugs|tld)$/ || $recipient eq 'nobody@mozilla.org') {
-    return 1;
+    # return 1;
   }
   return 0;
 }

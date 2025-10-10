@@ -828,7 +828,7 @@ sub SHOW_BUG_MODAL_CSP {
       'self',          'nonce',
       'unsafe-inline', 'unsafe-eval',
     ],
-    img_src     => ['self', 'data:', 'https://secure.gravatar.com'],
+    img_src     => ['self', 'data:', 'blob:', 'https://secure.gravatar.com'],
     media_src   => ['self'],
     connect_src => [
       'self',
