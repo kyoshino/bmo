@@ -40,6 +40,12 @@ class GuidedBugEntry {
   static openStates = [];
 
   /**
+   * Whether the web development entry flow is enabled.
+   * @type {boolean}
+   */
+  static webdev = false;
+
+  /**
    * Initiate a step change.
    * @param {string} newStep New step name.
    * @param {boolean} noSetHistory Whether to avoid updating history.
@@ -147,7 +153,6 @@ class GuidedBugEntry {
     this.openStates = JSON.parse(document.querySelector('#guided').dataset.openStates);
 
     // init steps
-    GuidedBugEntryWebDevPage.onInit();
     GuidedBugEntryProductPage.onInit();
     GuidedBugEntryOtherDupesPage.onInit();
     GuidedBugEntryFormPage.onInit();
@@ -243,6 +248,37 @@ class GuidedBugEntry {
   }
 
   /**
+   * Show or clear the inline error message for a field. The message element is keyed off the
+   * field’s own ID, so repeated calls update it in place instead of stacking duplicates.
+   * @param {HTMLElement} $field Field the message belongs to.
+   * @param {string} [message] Message to show. Pass nothing to clear the error.
+   */
+  static setFieldError($field, message = '') {
+    const id = `${$field.id}-error`;
+    let $message = document.getElementById(id);
+
+    if (!message) {
+      $field.removeAttribute('aria-invalid');
+      $field.removeAttribute('aria-errormessage');
+      $message?.remove();
+
+      return;
+    }
+
+    $field.setAttribute('aria-invalid', 'true');
+    $field.setAttribute('aria-errormessage', id);
+
+    if (!$message) {
+      $message = document.createElement('div');
+      $message.id = id;
+      $message.className = 'error-message';
+      $field.insertAdjacentElement('afterend', $message);
+    }
+
+    $message.textContent = message;
+  }
+
+  /**
    * Set the advanced bug entry link.
    */
   static setAdvancedLink() {
@@ -269,11 +305,6 @@ class GuidedBugEntry {
  * Web development product selection page.
  */
 class GuidedBugEntryWebDevPage {
-  /**
-   * Initialization callback.
-   */
-  static onInit() {}
-
   /**
    * Show callback.
    */
@@ -306,9 +337,59 @@ class GuidedBugEntryProductPage {
   static loadedProductName = null;
 
   /**
+   * Reference to the hidden product input element.
+   * @type {HTMLInputElement}
+   */
+  static $product = null;
+
+  /**
+   * Reference to the product name label on the form page.
+   * @type {HTMLElement}
+   */
+  static $productLabel = null;
+
+  /**
+   * Reference to the product name label on the duplicate search page.
+   * @type {HTMLElement}
+   */
+  static $dupeProductName = null;
+
+  /**
+   * Reference to the “See All Components” link element.
+   * @type {HTMLAnchorElement}
+   */
+  static $listComp = null;
+
+  /**
+   * Reference to the product support message container element.
+   * @type {HTMLElement}
+   */
+  static $support = null;
+
+  /**
+   * Reference to the product support message element.
+   * @type {HTMLElement}
+   */
+  static $supportMessage = null;
+
+  /**
+   * Reference to the component selection section element.
+   * @type {HTMLElement}
+   */
+  static $componentSection = null;
+
+  /**
    * Initialization callback.
    */
-  static onInit() {}
+  static onInit() {
+    this.$product = document.querySelector('#product');
+    this.$productLabel = document.querySelector('#product-label');
+    this.$dupeProductName = document.querySelector('#dupe-product-name');
+    this.$listComp = document.querySelector('#list-comp');
+    this.$support = document.querySelector('#product-support');
+    this.$supportMessage = document.querySelector('#product-support-message');
+    this.$componentSection = document.querySelector('#component-section');
+  }
 
   /**
    * Show callback.
@@ -348,7 +429,7 @@ class GuidedBugEntryProductPage {
    * Get the currently selected product name.
    */
   static get productName() {
-    return document.querySelector('#product').value;
+    return this.$product.value;
   }
 
   /**
@@ -379,6 +460,19 @@ class GuidedBugEntryProductPage {
   }
 
   /**
+   * Show or hide the component selector according to `fixedComponent()`.
+   * @param {string} [productName] Product name. Defaults to the selected product.
+   * @returns {string} The fixed component name, or an empty string if the user has to pick one.
+   */
+  static updateComponentSection(productName = this.productName) {
+    const fixedComponent = this.fixedComponent(productName);
+
+    this.$componentSection.hidden = !!fixedComponent;
+
+    return fixedComponent;
+  }
+
+  /**
    * Set the currently selected product.
    * @param {string} productName Product name.
    */
@@ -388,34 +482,33 @@ class GuidedBugEntryProductPage {
     }
 
     // display the product name
-    document.querySelector('#product').value = productName;
-    document.querySelector('#product-label').innerHTML = productName.htmlEncode();
-    document.querySelector('#dupe-product-name').innerHTML = productName.htmlEncode();
+    this.$product.value = productName;
+    this.$productLabel.innerHTML = productName.htmlEncode();
+    this.$dupeProductName.innerHTML = productName.htmlEncode();
 
     const { basepath } = BUGZILLA.config;
     const params = new URLSearchParams({ product: productName });
 
-    document.querySelector('#list-comp').href = `${basepath}describecomponents.cgi?${params}`;
+    this.$listComp.href = `${basepath}describecomponents.cgi?${params}`;
 
     GuidedBugEntry.setAdvancedLink();
 
-    const productSupport = document.querySelector('#product-support');
-
     if (productName === '') {
-      productSupport.hidden = true;
+      this.$support.hidden = true;
       return;
     }
 
     // show support message
-    if (products[productName]?.support) {
-      document.querySelector('#product-support-message').innerHTML = products[productName].support;
-      productSupport.hidden = false;
-    } else {
-      productSupport.hidden = true;
+    const { support } = products[productName] ?? {};
+
+    if (support) {
+      this.$supportMessage.innerHTML = support;
     }
 
+    this.$support.hidden = !support;
+
     // show/hide component selection row
-    document.querySelector('#component-section').hidden = !!this.fixedComponent(productName);
+    this.updateComponentSection(productName);
 
     if (this.loadedProductName === productName) {
       return;
@@ -451,11 +544,6 @@ class GuidedBugEntryProductPage {
  * Other products selection page.
  */
 class GuidedBugEntryOtherProductsPage {
-  /**
-   * Initialization callback.
-   */
-  static onInit() {}
-
   /**
    * Show callback.
    */
@@ -500,6 +588,36 @@ class GuidedBugEntryOtherDupesPage {
   static $list = null;
 
   /**
+   * Reference to the “continue to the form” container element.
+   * @type {HTMLDivElement}
+   */
+  static $continue = null;
+
+  /**
+   * Reference to the “continue to the form” button element.
+   * @type {HTMLButtonElement}
+   */
+  static $continueButton = null;
+
+  /**
+   * Reference to the localization message element.
+   * @type {HTMLElement}
+   */
+  static $l10nMessage = null;
+
+  /**
+   * Reference to the product name within the localization message.
+   * @type {HTMLElement}
+   */
+  static $l10nProduct = null;
+
+  /**
+   * Reference to the localization message link element.
+   * @type {HTMLAnchorElement}
+   */
+  static $l10nLink = null;
+
+  /**
    * Current search query.
    * @type {string}
    */
@@ -512,6 +630,11 @@ class GuidedBugEntryOtherDupesPage {
     this.$summary = document.querySelector('#dupe-summary');
     this.$search = document.querySelector('#dupe-search');
     this.$list = document.querySelector('#dupe-list');
+    this.$continue = document.querySelector('#dupe-continue');
+    this.$continueButton = document.querySelector('#dupe-continue-button');
+    this.$l10nMessage = document.querySelector('#l10n-message');
+    this.$l10nProduct = document.querySelector('#l10n-product');
+    this.$l10nLink = document.querySelector('#l10n-link');
 
     this.$summary.addEventListener('blur', this.onSummaryBlur.bind(this));
     this.$summary.addEventListener('input', this.onSummaryBlur.bind(this));
@@ -599,7 +722,7 @@ class GuidedBugEntryOtherDupesPage {
     const isOpen = GuidedBugEntry.openStates.includes(bugStatus);
 
     if (!isOpen && !isCCed) {
-      // you can't cc yourself to a closed bug here
+      // you can’t cc yourself to a closed bug here
       return '';
     }
 
@@ -654,8 +777,8 @@ class GuidedBugEntryOtherDupesPage {
   static reset() {
     this.$summary.value = '';
     this.$list.hidden = true;
-    document.querySelector('#dupe-continue').hidden = true;
     this.$list.innerHTML = '';
+    this.$continue.hidden = true;
     this.currentSearchQuery = '';
 
     window.requestAnimationFrame(() => {
@@ -675,18 +798,18 @@ class GuidedBugEntryOtherDupesPage {
     const { productName } = GuidedBugEntryProductPage;
 
     if (products[productName]?.l10n) {
-      document.querySelector('#l10n-message').hidden = false;
-      document.querySelector('#l10n-product').textContent = productName;
-      document.querySelector('#l10n-link').onclick = (event) => {
+      this.$l10nProduct.textContent = productName;
+      this.$l10nLink.onclick = (event) => {
         event.preventDefault();
         GuidedBugEntryProductPage.select('Mozilla Localizations');
       };
+      this.$l10nMessage.hidden = false;
     } else {
-      document.querySelector('#l10n-message').hidden = true;
+      this.$l10nMessage.hidden = true;
     }
 
     if (!this.$search.disabled && this.summary.length >= 4) {
-      // do an immediate search after a page refresh if there's a query
+      // do an immediate search after a page refresh if there’s a query
       this.doSearch();
     } else {
       // prepare for a search
@@ -718,7 +841,7 @@ class GuidedBugEntryOtherDupesPage {
    * Summary input keyup handler.
    */
   static onSummaryKeyUp() {
-    // disable search button until there's a query
+    // disable search button until there’s a query
     this.$search.disabled = !this.summary;
   }
 
@@ -727,27 +850,16 @@ class GuidedBugEntryOtherDupesPage {
    */
   static async doSearch() {
     if ([...this.summary].length < 4) {
-      const message = 'The summary must be at least 4 characters.';
-      this.$summary.setAttribute('aria-invalid', 'true');
-      this.$summary.setAttribute('aria-errormessage', 'dupe-summary-error');
-
-      if (!this.$summary.parentElement.querySelector('.error-message')) {
-        this.$summary.insertAdjacentHTML(
-          'afterend',
-          `<div id="dupe-summary-error" class="error-message">${message}</div>`,
-        );
-      }
+      GuidedBugEntry.setFieldError(this.$summary, 'The summary must be at least 4 characters.');
 
       return;
     }
 
-    this.$summary.setAttribute('aria-invalid', 'false');
-    this.$summary.removeAttribute('aria-errormessage');
-    this.$summary.parentElement.querySelector('.error-message')?.remove();
+    GuidedBugEntry.setFieldError(this.$summary);
 
     this.$search.blur();
 
-    // don't query if we already have the results (or they are pending)
+    // don’t query if we already have the results (or they are pending)
     if (this.currentSearchQuery === this.summary) {
       return;
     }
@@ -768,8 +880,8 @@ class GuidedBugEntryOtherDupesPage {
         `Searching for similar issues...&nbsp;&nbsp;&nbsp;<img src="${src}" width="16" height="11">`,
       );
 
-      document.querySelector('#dupe-continue-button').disabled = true;
-      document.querySelector('#dupe-continue').hidden = false;
+      this.$continueButton.disabled = true;
+      this.$continue.hidden = false;
 
       let data;
 
@@ -798,7 +910,7 @@ class GuidedBugEntryOtherDupesPage {
         data = { error: true };
       }
 
-      document.querySelector('#dupe-continue-button').disabled = false;
+      this.$continueButton.disabled = false;
       this.dataTable.update(data);
     } catch (err) {
       console.error(err.message);
@@ -866,10 +978,59 @@ class GuidedBugEntryFormPage {
   static $versionSelect = null;
 
   /**
+   * Reference to the version selection section element.
+   * @type {HTMLElement}
+   */
+  static $versionSection = null;
+
+  /**
+   * Reference to the element the attachment selector is rendered into.
+   * @type {HTMLElement}
+   */
+  static $attPlaceholder = null;
+
+  /**
+   * Reference to the attachment description section element.
+   * @type {HTMLElement}
+   */
+  static $attDescSection = null;
+
+  /**
+   * Reference to the attachment description input element.
+   * @type {HTMLInputElement}
+   */
+  static $attDescription = null;
+
+  /**
+   * Reference to the hidden attachment content type input element.
+   * @type {HTMLInputElement}
+   */
+  static $attMimeType = null;
+
+  /**
+   * Reference to the hidden attachment patch flag input element.
+   * @type {HTMLInputElement}
+   */
+  static $attIsPatch = null;
+
+  /**
    * Reference to the currently visible help panel.
    * @type {HTMLElement}
    */
   static $visibleHelpPanel = null;
+
+  /**
+   * The attachment selector, created once the form page is first shown.
+   * @type {Bugzilla.AttachmentSelector | undefined}
+   */
+  static attachmentSelector;
+
+  /**
+   * Whether the user has edited the attachment description themselves, in which case it’s no
+   * longer updated automatically.
+   * @type {boolean}
+   */
+  static attDescOverridden = false;
 
   /**
    * List of elements that are conditionally displayed.
@@ -894,6 +1055,7 @@ class GuidedBugEntryFormPage {
     this.$componentDesc = document.querySelector('#component-description');
     this.$version = document.querySelector('#version');
     this.$versionSelect = document.querySelector('#version-select');
+    this.$versionSection = document.querySelector('#version-section');
     this.$attPlaceholder = document.querySelector('#att-placeholder');
     this.$attDescSection = document.querySelector('#att-desc-section');
     this.$attDescription = document.querySelector('#att-description');
@@ -903,7 +1065,7 @@ class GuidedBugEntryFormPage {
     document.querySelector('#user_agent').value = navigator.userAgent;
 
     this.$shortDescInput.addEventListener('blur', () => {
-      document.querySelector('#dupe-summary').value = this.$shortDescInput.value;
+      GuidedBugEntryOtherDupesPage.$summary.value = this.$shortDescInput.value;
       GuidedBugEntry.setAdvancedLink();
     });
 
@@ -1021,10 +1183,8 @@ class GuidedBugEntryFormPage {
       },
     });
 
-    this.requiredFields.forEach((el) => {
-      el.removeAttribute('aria-invalid');
-      el.removeAttribute('aria-errormessage');
-      el.parentElement.querySelector('.error-message')?.remove();
+    this.requiredFields.forEach(($field) => {
+      GuidedBugEntry.setFieldError($field);
     });
 
     this.conditionalDetails.forEach((cond) => {
@@ -1125,7 +1285,7 @@ class GuidedBugEntryFormPage {
     this.$submitButton.disabled = false;
 
     const { componentFilter, defaultComponent } = products[productName] ?? {};
-    const fixedComponent = GuidedBugEntryProductPage.fixedComponent(productName);
+    const fixedComponent = GuidedBugEntryProductPage.updateComponentSection(productName);
 
     // filter components
     if (componentFilter) {
@@ -1133,8 +1293,6 @@ class GuidedBugEntryFormPage {
         GuidedBugEntryProductPage.details.components,
       );
     }
-
-    document.querySelector('#component-section').hidden = !!fixedComponent;
 
     // build components
     if (fixedComponent) {
@@ -1156,7 +1314,7 @@ class GuidedBugEntryFormPage {
       const component = components.find((c) => c.is_active && defaultRegex.test(c.name));
       const preselectedComponentName = component?.name ?? null;
 
-      // if there isn't a default component, default to blank
+      // if there isn’t a default component, default to blank
       if (!preselectedComponentName) {
         $components.options.add(new Option('', ''));
       }
@@ -1211,12 +1369,12 @@ class GuidedBugEntryFormPage {
       }
     }
 
-    if ($versions.length > 1) {
-      // more than one version, show select
-      document.querySelector('#version-section').hidden = false;
-    } else {
-      // if there's only one version, we don't need to ask the user
-      document.querySelector('#version-section').hidden = true;
+    // If there’s only one version, we don’t need to ask the user
+    const singleVersion = $versions.length <= 1;
+
+    this.$versionSection.hidden = singleVersion;
+
+    if (singleVersion) {
       defaultVersion = $versions.options[0]?.value;
     }
 
@@ -1296,37 +1454,25 @@ class GuidedBugEntryFormPage {
     const result = [];
 
     this.requiredFields.forEach(($field) => {
-      let invalid = false;
-      let message = '';
+      const invalid =
+        $field.getAttribute('role') === 'radiogroup'
+          ? ![...$field.querySelectorAll('input')].some((r) => r.checked)
+          : !$field.value.trim();
 
-      if ($field.getAttribute('role') === 'radiogroup') {
-        invalid = ![...$field.querySelectorAll('input')].some((r) => r.checked);
-        message = 'Please select an option.';
-      } else if ($field.matches('select')) {
-        invalid = !$field.value.trim();
-        message = 'Please select an option.';
-      } else {
-        invalid = !$field.value.trim();
-        message = $field.matches('[data-allow-na]')
+      if (!invalid) {
+        GuidedBugEntry.setFieldError($field);
+
+        return;
+      }
+
+      const message = $field.matches('[role="radiogroup"], select')
+        ? 'Please select an option.'
+        : $field.matches('[data-allow-na]')
           ? 'This field is required. Write “N/A” if not applicable.'
           : 'This field is required.';
-      }
 
-      $field.setAttribute('aria-invalid', invalid);
-      $field.setAttribute('aria-errormessage', invalid ? `${$field.id}-error` : '');
-
-      if (invalid) {
-        result.push($field.id);
-
-        if (!$field.parentElement.querySelector('.error-message')) {
-          $field.insertAdjacentHTML(
-            'afterend',
-            `<div id="${$field.id}-error" class="error-message">${message}</div>`,
-          );
-        }
-      } else {
-        $field.parentElement.querySelector('.error-message')?.remove();
-      }
+      GuidedBugEntry.setFieldError($field, message);
+      result.push($field.id);
     });
 
     return result;
