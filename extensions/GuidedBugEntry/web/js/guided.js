@@ -419,7 +419,13 @@ class GuidedBugEntryProductPage {
     }
 
     this.preselectedComponent = prod?.defaultComponent || componentName || '';
+
+    // This is a fresh choice by the user, so drop the component carried over from the previous
+    // selection, then re-apply the preselection. `setProduct()` returns early when the product
+    // itself hasn’t changed, so it can’t be relied on to do this.
+    GuidedBugEntryFormPage.resetComponent();
     this.setProduct(productName);
+    GuidedBugEntryFormPage.onProductUpdated();
 
     GuidedBugEntryOtherDupesPage.reset();
     GuidedBugEntry.setStep('dupes');
@@ -1259,6 +1265,16 @@ class GuidedBugEntryFormPage {
    */
   static quoteMeta(value) {
     return value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+  }
+
+  /**
+   * Clear the currently selected component. Called when the user picks a product, so the component
+   * chosen for the previously selected product isn’t silently reused.
+   */
+  static resetComponent() {
+    this.$component.value = '';
+    this.$componentDesc.innerHTML = '';
+    this.$componentDesc.hidden = true;
   }
 
   /**

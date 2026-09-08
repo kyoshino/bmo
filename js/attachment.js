@@ -517,7 +517,7 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
    * Enable keyboard access on the buttons. Treat the Enter keypress as a click.
    */
   enableKeyboardAccess() {
-    document.querySelectorAll('#att-selector [role="button"]').forEach(($button) => {
+    this.$placeholder.querySelectorAll('[role="button"]').forEach(($button) => {
       $button.addEventListener('keypress', (event) => {
         if (!event.isComposing && event.key === 'Enter') {
           event.target.click();
@@ -810,7 +810,7 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
 
   /**
    * Called whenever the content of the textarea is updated. Dispatches the `AttachmentTextUpdated`
-   * event with the current text content, and whether it's detected as a patch or GitHub PR link.
+   * event with the current text content, and whether it’s detected as a patch or GitHub PR link.
    */
   textareaOnInput() {
     const text = this.$textarea.value.trim();
@@ -1089,7 +1089,7 @@ Bugzilla.AttachmentForm = class AttachmentForm {
       this.description = isPatch ? 'patch' : isGhpr ? 'GitHub Pull Request' : '';
     }
 
-    // `processFile()` runs this with `hasText: false`, so don't let it clear the required state
+    // `processFile()` runs this with `hasText: false`, so don’t let it clear the required state
     // on a form that demands an attachment
     this.$description.setAttribute('aria-required', this.required || hasText);
     this.$typeInput.value = isGhpr ? 'text/x-github-pull-request' : '';

@@ -166,7 +166,6 @@ Bugzilla.DataTable = class DataTable {
         const $column = $row.appendChild(document.createElement('td'));
 
         $column.dataset.key = key;
-        $column.dataset.columnLabel = label || key;
 
         if (className) {
           $column.classList.add(className);
@@ -196,9 +195,13 @@ Bugzilla.DataTable = class DataTable {
             ? formatter.replaceAll('{value}', value)
             : value;
 
-        if (content === undefined) {
+        // An empty cell is left unlabeled: the label is only rendered as a row header on narrow
+        // screens, where it would otherwise show a heading with no value under it
+        if (content === undefined || content === '') {
           return;
         }
+
+        $column.dataset.columnLabel = label || key;
 
         if (allowHTML) {
           if (typeof content === 'string') {
