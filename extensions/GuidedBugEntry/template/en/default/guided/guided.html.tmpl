@@ -285,13 +285,15 @@
               placeholder="Short summary of issue">
         </div>
         <div>
-          <button id="dupe-search">Find similar issues</button>
+          <button type="button" id="dupe-search">Find similar issues</button>
         </div>
       </div>
     </div>
     <div id="dupe-list"></div>
     <div id="dupe-continue">
-      <button id="dupe-continue-button" data-step="bug-form">My issue is not listed</button>
+      <button type="button" id="dupe-continue-button" data-step="bug-form">
+        My issue is not listed
+      </button>
     </div>
   </section>
 </div>
@@ -572,7 +574,8 @@
 [%############################################################################%]
 
 [% BLOCK help %]
-<button class="iconic help-trigger" aria-label="Help" aria-describedby="[% id FILTER html %]">
+<button type="button" class="iconic help-trigger" aria-label="Help"
+    aria-describedby="[% id FILTER html %]">
   <span class="icon">help</span>
 </button>
 <div id="[% id FILTER html %]" class="help" role="tooltip" hidden>

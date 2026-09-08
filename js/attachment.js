@@ -1075,7 +1075,9 @@ Bugzilla.AttachmentForm = class AttachmentForm {
       this.description = isPatch ? 'patch' : isGhpr ? 'GitHub Pull Request' : '';
     }
 
-    this.$description.setAttribute('aria-required', hasText);
+    // `processFile()` runs this with `hasText: false`, so don't let it clear the required state
+    // on a form that demands an attachment
+    this.$description.setAttribute('aria-required', this.required || hasText);
     this.$typeInput.value = isGhpr ? 'text/x-github-pull-request' : '';
     this.updateIsPatch(isPatch);
   }

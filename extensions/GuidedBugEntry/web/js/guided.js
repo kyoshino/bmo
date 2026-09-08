@@ -135,7 +135,9 @@ class GuidedBugEntry {
    * Initialize the guided bug entry and history management.
    */
   static init() {
-    if (new URLSearchParams(location.search).has('webdev')) {
+    const webdev = new URLSearchParams(location.search).get('webdev');
+
+    if (webdev && webdev !== '0') {
       this.defaultStep = 'webdev';
       this.webdev = true;
     }
@@ -235,8 +237,8 @@ class GuidedBugEntry {
   static onStateChange(noSetHistory) {
     const { product, component, step } = window.history.state ?? {};
 
-    GuidedBugEntryProductPage.setProduct(product ?? '');
     GuidedBugEntryProductPage.preselectedComponent = component ?? '';
+    GuidedBugEntryProductPage.setProduct(product ?? '');
     GuidedBugEntry.setStep(step, noSetHistory);
   }
 
@@ -335,7 +337,7 @@ class GuidedBugEntryProductPage {
       }
     }
 
-    this.preselectedComponent = prod?.defaultComponent || '';
+    this.preselectedComponent = prod?.defaultComponent || componentName || '';
     this.setProduct(productName);
 
     GuidedBugEntryOtherDupesPage.reset();
@@ -356,6 +358,24 @@ class GuidedBugEntryProductPage {
     const { productName } = this;
 
     return [productName, ...(products[productName]?.related ?? [])];
+  }
+
+  /**
+   * Get the component to be used as-is for the given product, without asking the user. This is
+   * empty unless the product’s component selection is suppressed *and* a component is actually
+   * known; otherwise the component selector has to be shown, because submitting the form without a
+   * component always fails.
+   * @param {string} [productName] Product name. Defaults to the selected product.
+   * @returns {string} Component name, or an empty string if the user has to pick one.
+   */
+  static fixedComponent(productName = this.productName) {
+    const { noComponentSelection, defaultComponent } = products[productName] ?? {};
+
+    if (!noComponentSelection && !GuidedBugEntry.webdev) {
+      return '';
+    }
+
+    return defaultComponent || this.preselectedComponent || '';
   }
 
   /**
@@ -395,8 +415,7 @@ class GuidedBugEntryProductPage {
     }
 
     // show/hide component selection row
-    document.querySelector('#component-section').hidden =
-      !!products[productName]?.noComponentSelection || !!GuidedBugEntry.webdev;
+    document.querySelector('#component-section').hidden = !!this.fixedComponent(productName);
 
     if (this.loadedProductName === productName) {
       return;
@@ -864,12 +883,6 @@ class GuidedBugEntryFormPage {
   ];
 
   /**
-   * Maximum attachment size in KB.
-   * @type {number}
-   */
-  static maxAttachmentSize = Number(BUGZILLA.param.maxattachmentsize);
-
-  /**
    * Initialization callback.
    */
   static onInit() {
@@ -1111,7 +1124,8 @@ class GuidedBugEntryFormPage {
 
     this.$submitButton.disabled = false;
 
-    const { componentFilter, noComponentSelection, defaultComponent } = products[productName] ?? {};
+    const { componentFilter, defaultComponent } = products[productName] ?? {};
+    const fixedComponent = GuidedBugEntryProductPage.fixedComponent(productName);
 
     // filter components
     if (componentFilter) {
@@ -1120,9 +1134,11 @@ class GuidedBugEntryFormPage {
       );
     }
 
+    document.querySelector('#component-section').hidden = !!fixedComponent;
+
     // build components
-    if (noComponentSelection || GuidedBugEntry.webdev) {
-      this.$component.value = defaultComponent;
+    if (fixedComponent) {
+      this.$component.value = fixedComponent;
       this.$componentSelect.removeAttribute('aria-required');
     } else {
       this.$componentSelect.setAttribute('aria-required', 'true');
@@ -1263,8 +1279,11 @@ class GuidedBugEntryFormPage {
    * @returns {HTMLElement[]} Array of required field elements.
    */
   static get requiredFields() {
+    // Only the field’s own `<section>` decides whether it’s reachable. Don’t look at every
+    // ancestor: the comment editor hides its edit tabpanel while the Preview tab is selected, and
+    // the field inside it still has to be validated.
     return [...this.$form.querySelectorAll('[aria-required="true"]')].filter(
-      ($field) => !$field.closest('[hidden], [aria-hidden="true"]'),
+      ($field) => !$field.closest('section')?.hidden,
     );
   }
 

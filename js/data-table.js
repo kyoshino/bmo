@@ -334,7 +334,7 @@ Bugzilla.DataTable = class DataTable {
    * @param {string} message Message text.
    */
   setMessage(message) {
-    this.#$table.hidden = Object.keys(this.#defaultStrings).includes(message);
+    this.#$table.hidden = !this.data.length;
     this.#$message.innerHTML =
       this.strings[message] || this.#defaultStrings[message] || message || '';
     this.#$message.hidden = !message;
