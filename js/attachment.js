@@ -444,6 +444,17 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
   }
 
   /**
+   * Cancel any file read still in progress. Without this, the `load` event of an earlier read could
+   * repopulate `$data` after the fields have been cleared, and starting a second read while the
+   * first is still running throws an `InvalidStateError`.
+   */
+  #abortReads() {
+    this.readingFile = false;
+    this.dataReader.abort();
+    this.textReader.abort();
+  }
+
+  /**
    * Initialize the UI state and prepare the form for use.
    */
   #initializeView() {
@@ -519,7 +530,7 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
    * Reset all the input fields to the initial state, and remove the preview and message.
    */
   resetFields() {
-    this.readingFile = false;
+    this.#abortReads();
     this.$file.value = '';
     this.$data.value = '';
     this.$filename.value = '';
@@ -554,8 +565,9 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
         ? 'text/plain'
         : file.type || 'application/octet-stream';
 
+    this.#abortReads();
+
     if (!this.checkFileSize(file.size)) {
-      this.readingFile = false;
       this.$file.value = '';
       this.$data.value = '';
       this.$filename.value = '';
@@ -760,9 +772,11 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
   async captureButtonOnClick() {
     const $video = document.createElement('video');
     const $canvas = document.createElement('canvas');
+    /** @type {MediaStream | undefined} */
+    let stream;
 
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'window' },
       });
 
@@ -777,11 +791,6 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
       // Draw a video frame on `<canvas>`
       $canvas.getContext('2d').drawImage($video, 0, 0, width, height);
 
-      // Clean up `<video>`
-      $video.pause();
-      $video.srcObject.getTracks().forEach((track) => track.stop());
-      $video.srcObject = null;
-
       // Convert to PNG
       const blob = await new Promise((resolve) => $canvas.toBlob((blob) => resolve(blob)));
       const [date, time] = new Date().toISOString().match(/^(.+)T(.+)\./).slice(1);
@@ -791,6 +800,11 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
       this.dispatchEvent('AttachmentCaptured', { file });
     } catch {
       alert('Unable to capture a screenshot.');
+    } finally {
+      // Clean up `<video>` and stop sharing, including when the capture failed partway through
+      $video.pause();
+      stream?.getTracks().forEach((track) => track.stop());
+      $video.srcObject = null;
     }
   }
 

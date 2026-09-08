@@ -1497,8 +1497,13 @@ class GuidedBugEntryFormPage {
    * Submit the bug form.
    */
   static async submitForm(event) {
-    if (!this.validate()) {
+    // The attachment selector can cancel the submission from its own `submit` listener, which runs
+    // after this one, so ask it first: the submit button must not be left disabled in that case
+    const attachmentValid = this.attachmentSelector?.validate(event) ?? true;
+
+    if (!this.validate() || !attachmentValid) {
       event.preventDefault();
+
       return false;
     }
 
