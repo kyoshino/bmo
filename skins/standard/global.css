@@ -1833,7 +1833,7 @@ input.requestee {
 }
 
 [aria-invalid="true"],
-input:invalid,
+input:user-invalid,
 .attention {
   border-color: var(--invalid-control-border-color) !important;
   box-shadow: 0 0 4px var(--error-message-foreground-color) !important;

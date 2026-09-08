@@ -64,7 +64,7 @@ class GuidedBugEntry {
         GuidedBugEntryFormPage.onShow();
         break;
       default:
-        GuidedBugEntry.setStep(this.defaultStep);
+        GuidedBugEntry.setStep(this.defaultStep, noSetHistory);
         return;
     }
 
@@ -153,7 +153,7 @@ class GuidedBugEntry {
 
     const noSetHistory = !window.history.state;
 
-    if (!noSetHistory) {
+    if (noSetHistory) {
       const { search, pathname } = window.location;
       const params = new URLSearchParams(search);
       const { product: productName, component: componentName } = Object.fromEntries(params);
@@ -186,10 +186,21 @@ class GuidedBugEntry {
         const { link, product: productName, component: componentName } = $item.dataset;
 
         if (link) {
+          if (!URL.canParse(link, location.href)) {
+            return;
+          }
+
+          const { protocol, href } = new URL(link, location.href);
+
+          // Only allow web links; never navigate to `javascript:` etc.
+          if (!protocol.match(/^https?:$/)) {
+            return;
+          }
+
           if (event.metaKey || event.ctrlKey) {
-            window.open(link, '_blank');
+            window.open(href, '_blank');
           } else {
-            location.href = link;
+            location.href = href;
           }
         } else if (productName === 'Other Products') {
           GuidedBugEntry.setStep('other-products');
@@ -344,7 +355,7 @@ class GuidedBugEntryProductPage {
   static get productNameAndRelated() {
     const { productName } = this;
 
-    return [productName, ...(products[productName].related ?? [])];
+    return [productName, ...(products[productName]?.related ?? [])];
   }
 
   /**
@@ -626,7 +637,6 @@ class GuidedBugEntryOtherDupesPage {
     this.$list.hidden = true;
     document.querySelector('#dupe-continue').hidden = true;
     this.$list.innerHTML = '';
-    this.showProductSupport();
     this.currentSearchQuery = '';
 
     window.requestAnimationFrame(() => {
@@ -636,22 +646,9 @@ class GuidedBugEntryOtherDupesPage {
   }
 
   /**
-   * Show the product support message.
-   */
-  static showProductSupport() {
-    const { productName } = GuidedBugEntryProductPage;
-    const elSupportId = `product-support-${productName.replace(' ', '-').toLowerCase()}`;
-
-    document.querySelectorAll('.product-support').forEach(($element) => {
-      $element.classList.toggle('hidden', $element.id !== elSupportId);
-    });
-  }
-
-  /**
    * Show callback.
    */
   static onShow() {
-    this.showProductSupport();
     this.onSummaryBlur();
 
     GuidedBugEntry.updateSteppers('dupes');
@@ -714,17 +711,20 @@ class GuidedBugEntryOtherDupesPage {
       const message = 'The summary must be at least 4 characters.';
       this.$summary.setAttribute('aria-invalid', 'true');
       this.$summary.setAttribute('aria-errormessage', 'dupe-summary-error');
-      this.$summary.insertAdjacentHTML(
-        'afterend',
-        `<div id="dupe-summary-error" class="error-message">${message}</div>`,
-      );
+
+      if (!this.$summary.parentElement.querySelector('.error-message')) {
+        this.$summary.insertAdjacentHTML(
+          'afterend',
+          `<div id="dupe-summary-error" class="error-message">${message}</div>`,
+        );
+      }
 
       return;
     }
 
     this.$summary.setAttribute('aria-invalid', 'false');
     this.$summary.removeAttribute('aria-errormessage');
-    this.$summary.parentElement.querySelector('.error')?.remove();
+    this.$summary.parentElement.querySelector('.error-message')?.remove();
 
     this.$search.blur();
 
@@ -1000,7 +1000,7 @@ class GuidedBugEntryFormPage {
       this.onProductUpdated();
     }
 
-    new Bugzilla.AttachmentSelector({
+    this.attachmentSelector ??= new Bugzilla.AttachmentSelector({
       $placeholder: this.$attPlaceholder,
       eventHandlers: {
         AttachmentProcessed: (event) => this.onAttachmentProcessed(event),
@@ -1011,7 +1011,7 @@ class GuidedBugEntryFormPage {
     this.requiredFields.forEach((el) => {
       el.removeAttribute('aria-invalid');
       el.removeAttribute('aria-errormessage');
-      el.parentElement.querySelector('.error')?.remove();
+      el.parentElement.querySelector('.error-message')?.remove();
     });
 
     this.conditionalDetails.forEach((cond) => {
@@ -1206,13 +1206,13 @@ class GuidedBugEntryFormPage {
 
     if (defaultVersion) {
       $versions.value = defaultVersion;
-    } else {
+    } else if ([...$versions.options].some((o) => o.value === 'unspecified')) {
       // Fallback to 'unspecified' if available
-      const index = [...$versions.options].findIndex((o) => o.value === 'unspecified');
-
-      if (index > -1) {
-        $versions.value = 'unspecified';
-      }
+      $versions.value = 'unspecified';
+    } else {
+      // No default version, select an empty value to force a decision
+      $versions.options.add(new Option('', ''), $versions.options[0]);
+      $versions.value = '';
     }
 
     this.onVersionChange($versions.value);
@@ -1263,7 +1263,9 @@ class GuidedBugEntryFormPage {
    * @returns {HTMLElement[]} Array of required field elements.
    */
   static get requiredFields() {
-    return [...this.$form.querySelectorAll('[aria-required="true"]:not([aria-hidden="true"])')];
+    return [...this.$form.querySelectorAll('[aria-required="true"]')].filter(
+      ($field) => !$field.closest('[hidden], [aria-hidden="true"]'),
+    );
   }
 
   /**

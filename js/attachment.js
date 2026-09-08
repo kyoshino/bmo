@@ -295,6 +295,19 @@ var Bugzilla = Bugzilla || {};
  */
 Bugzilla.AttachmentSelector = class AttachmentSelector {
   /**
+   * Whether the currently selected file exceeds the maximum allowed size.
+   * @type {boolean}
+   */
+  sizeError = false;
+
+  /**
+   * Whether a selected file is still being read into `$data`. The read is asynchronous, so the form
+   * must not be submitted until it completes, otherwise `data_base64` would be posted empty.
+   * @type {boolean}
+   */
+  readingFile = false;
+
+  /**
    * Initialize a new `AttachmentSelector` instance.
    * @param {object} params An object of parameters.
    * @param {HTMLElement} params.$placeholder An element to be enhanced with the attachment selector
@@ -352,13 +365,13 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
             <div hidden id="att-preview">
               <input id="att-filename" type="hidden" name="filename">
               <textarea hidden id="att-data" name="data_base64" aria-hidden="true"
-                  aria-invalid="false" aria-errormessage="att-data-error"></textarea>
+                  aria-invalid="false" aria-errormessage="att-error-message"></textarea>
               <figure role="img" aria-labelledby="att-preview-name" itemscope
                   itemtype="http://schema.org/MediaObject">
                 <meta itemprop="encodingFormat">
                 <pre itemprop="text"></pre>
                 <img src="" alt="" itemprop="image">
-                <figcaption class="att-preview-name" itemprop="name"></figcaption>
+                <figcaption id="att-preview-name" itemprop="name"></figcaption>
                 <span class="icon" aria-hidden="true"></span>
               </figure>
               <span id="att-file-remove-button" class="att-remove-button" tabindex="0" role="button"
@@ -506,6 +519,7 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
    * Reset all the input fields to the initial state, and remove the preview and message.
    */
   resetFields() {
+    this.readingFile = false;
     this.$file.value = '';
     this.$data.value = '';
     this.$filename.value = '';
@@ -540,16 +554,27 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
         ? 'text/plain'
         : file.type || 'application/octet-stream';
 
-    if (this.checkFileSize(file.size)) {
-      this.dataReader.readAsDataURL(file);
-      this.$file.value = '';
-      this.$filename.value = file.name.replace(/\s/g, '-');
-    } else {
+    if (!this.checkFileSize(file.size)) {
+      this.readingFile = false;
       this.$file.value = '';
       this.$data.value = '';
       this.$filename.value = '';
+      this.clearPreview();
+      this.updateText();
+      this.actionsDisplayed = true;
+      this.editorDisplayed = false;
+
+      return;
     }
 
+    this.readingFile = true;
+    this.dataReader.readAsDataURL(file);
+    // Note that this clears `$file.files` as well, so `$filename` is what tells us a file has been
+    // picked from here on
+    this.$file.value = '';
+    this.$filename.value = file.name.replace(/\s/g, '-');
+
+    this.editorDisplayed = false;
     this.showPreview(file, isText);
     this.updateText();
     this.dispatchEvent('AttachmentProcessed', { file, type, isPatch });
@@ -571,8 +596,8 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
         `consider uploading it to an online file storage and sharing the link in a ` +
         `${BUGZILLA.string.bug} comment instead.`
       : '';
-    const messageShort = invalid ? 'File too large' : '';
 
+    this.sizeError = invalid;
     this.$errorMessage.hidden = !invalid;
     this.$errorMessage.innerHTML = message;
     this.$dropbox.classList.toggle('invalid', invalid);
@@ -586,6 +611,10 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
    */
   dataReaderOnLoad() {
     this.$data.value = this.dataReader.result.split(',')[1];
+    this.readingFile = false;
+
+    // Clear any error shown while the read was still in progress
+    this.clearError();
   }
 
   /**
@@ -644,8 +673,6 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
 
     if (files.length > 0) {
       this.processFile(files[0]);
-      this.editorDisplayed = false;
-      this.previewDisplayed = true;
     } else if (text) {
       this.clearPreview();
       this.clearError();
@@ -667,6 +694,8 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
     this.textareaOnInput();
 
     if (text.trim()) {
+      this.readingFile = false;
+      this.sizeError = false;
       this.$textarea.hidden = false;
       this.$dropbox.classList.remove('invalid');
       this.$errorMessage.hidden = true;
@@ -700,8 +729,6 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
           const file = new File([blob], 'pasted-image.png', { type: 'image/png' });
 
           this.processFile(file);
-          this.editorDisplayed = false;
-          this.previewDisplayed = true;
           pasted = true;
         } else if (item.types.includes('text/plain')) {
           const blob = await item.getType('text/plain');
@@ -857,10 +884,31 @@ Bugzilla.AttachmentSelector = class AttachmentSelector {
    * @returns {boolean} `true` if the form is valid and can be submitted, `false` otherwise.
    */
   validate(event) {
+    // Nothing to validate when the selector is not in use, e.g. when the user opted out of adding
+    // an attachment on the New Bug page
+    if (this.$placeholder.closest('[hidden]')) {
+      return true;
+    }
+
+    if (this.sizeError) {
+      // Keep the file size error on screen instead of overwriting it below
+      event.preventDefault();
+
+      return false;
+    }
+
+    if (this.readingFile) {
+      this.$errorMessage.textContent = 'The file is still being read. Please try again.';
+      this.$errorMessage.hidden = false;
+      event.preventDefault();
+
+      return false;
+    }
+
     const invalid =
       this.required &&
       !this.$data.value.trim() &&
-      !this.$file.length &&
+      !this.$filename.value.trim() &&
       !this.$textarea.value.trim();
 
     this.$errorMessage.textContent = invalid ? 'You must provide an attachment.' : '';
@@ -1229,7 +1277,9 @@ Bugzilla.AttachmentForm = class AttachmentForm {
       event.preventDefault();
     }
 
-    return !invalid;
+    // The selector listens for the same events, but validate it here as well so callers that
+    // invoke this method directly get the combined result
+    return this.selector.validate(event) && !invalid;
   }
 };
 
